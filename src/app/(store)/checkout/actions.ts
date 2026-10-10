@@ -3,7 +3,6 @@
 import { checkoutSchema } from "@/lib/checkout";
 import { createOrder } from "@/lib/data/orders";
 import { getCheckoutLines } from "@/lib/data/products";
-import { FREE_DELIVERY_THRESHOLD } from "@/lib/constants";
 
 export type PlaceOrderInput = {
   items: { product_id: string; quantity: number; personalization?: Record<string, string> }[];
@@ -96,6 +95,3 @@ function cleanOrderError(message: string): string {
   const generic = "That item is not available right now.";
   return friendly[message] ?? generic;
 }
-
-/** Convenience so the client can show the free-delivery hint consistently. */
-export const FREE_SHIPPING_AT = FREE_DELIVERY_THRESHOLD;

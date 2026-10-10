@@ -5,6 +5,13 @@ import {
   GOVERNORATES,
 } from "@/lib/constants";
 
+// Postgres `uuid` accepts any well-formed hex UUID (it does not enforce the
+// RFC 4122 version/variant bits), and our seed data uses such ids (e.g.
+// `22222222-2222-2222-2222-000000000001`). zod's `z.string().uuid()` rejects
+// those, so validate against the same relaxed shape Postgres accepts.
+const DB_UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 export const ORDER_SOURCES = [
   "website",
   "instagram",
@@ -17,7 +24,7 @@ export const checkoutSchema = z.object({
   items: z
     .array(
       z.object({
-        product_id: z.string().uuid(),
+        product_id: z.string().trim().regex(DB_UUID_RE, "A cart item has an invalid product reference."),
         quantity: z.number().int().min(1).max(50),
         personalization: z.record(z.string(), z.string().max(200)).optional(),
       }),

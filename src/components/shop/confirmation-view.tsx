@@ -16,21 +16,37 @@ interface LastOrder {
   phone: string;
 }
 
+let cachedRaw: string | null | undefined;
+let cachedValue: LastOrder | null = null;
+
 function readLastOrder(): LastOrder | null {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(LAST_ORDER_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<LastOrder>;
-    if (!parsed.order_number) return null;
-    return parsed as LastOrder;
+    raw = localStorage.getItem(LAST_ORDER_KEY);
   } catch {
     return null;
   }
+  if (raw === cachedRaw) return cachedValue;
+  cachedRaw = raw;
+  cachedValue = null;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<LastOrder>;
+      if (parsed.order_number) cachedValue = parsed as LastOrder;
+    } catch {
+      cachedValue = null;
+    }
+  }
+  return cachedValue;
+}
+
+function subscribeNoop() {
+  return () => {};
 }
 
 export function ConfirmationView() {
   const order = React.useSyncExternalStore(
-    () => () => {},
+    subscribeNoop,
     readLastOrder,
     () => null,
   );
