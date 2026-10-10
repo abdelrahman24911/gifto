@@ -1,6 +1,6 @@
 "use server";
 
-import { checkoutSchema, deliveryFeeFor, paymentStatusFor } from "@/lib/checkout";
+import { checkoutSchema } from "@/lib/checkout";
 import { createOrder } from "@/lib/data/orders";
 import { getCheckoutLines } from "@/lib/data/products";
 import { FREE_DELIVERY_THRESHOLD } from "@/lib/constants";
@@ -48,7 +48,6 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const productIds = [...new Set(items.map((item) => item.product_id))];
   const snapshot = await getCheckoutLines(productIds);
 
-  let subtotal = 0;
   for (const item of items) {
     const product = snapshot[item.product_id];
     if (!product) return { ok: false, error: "One of your items is no longer available." };
@@ -59,12 +58,10 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         ok: false,
         error: `Only ${product.stock_quantity} in stock for “${product.name}”.`,
       };
-    subtotal += product.price * item.quantity;
   }
 
-  const delivery_fee = deliveryFeeFor(governorate, subtotal);
-  const { payment_status } = paymentStatusFor(payment_method);
-
+  // Delivery fee and payment status are derived server-side inside the
+  // `create_order` RPC (P0 §10.1 #2) — the app sends the payment method only.
   try {
     const order = await createOrder({
       items,
@@ -77,8 +74,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       delivery_notes: delivery_notes || undefined,
       gift_message: gift_message || undefined,
       source: "website",
-      delivery_fee,
-      payment_status,
+      payment_method,
     });
     return { ok: true, order };
   } catch (error) {
@@ -96,7 +92,6 @@ function cleanOrderError(message: string): string {
     "Please enter a valid phone number.": "Please enter a valid phone number.",
     "Please choose a governorate.": "Please choose a governorate.",
     "Please enter a delivery address.": "Please enter a delivery address.",
-    "Invalid delivery fee.": "That item is not available right now.",
   };
   const generic = "That item is not available right now.";
   return friendly[message] ?? generic;

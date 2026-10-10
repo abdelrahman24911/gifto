@@ -312,6 +312,9 @@ where p.stock_quantity - coalesce(m.net, 0) <> 0;
 
 -- ---------------------------------------------------------------------------
 -- demo staff accounts (password: Admin1234! / Staff1234!)
+-- Roles are NEVER taken from signup metadata (see migration 20261001000012).
+-- The `handle_new_user` trigger creates these profiles as plain `customer`;
+-- they are promoted here through the authorized `set_role()` path only.
 -- ---------------------------------------------------------------------------
 insert into auth.users
   (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -337,6 +340,10 @@ select gen_random_uuid(), u.id,
 from auth.users u
 where u.email in ('admin@fltase3.com', 'staff@fltase3.com')
 on conflict do nothing;
+
+-- promote demo accounts through the authorized, audited path
+select public.set_role('99999999-9999-9999-9999-000000000001', 'admin');
+select public.set_role('99999999-9999-9999-9999-000000000002', 'staff');
 
 
 commit;

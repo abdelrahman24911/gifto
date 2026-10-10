@@ -729,18 +729,21 @@ export type Database = {
         Args: {
           p_area: string;
           p_delivery_address: string;
-          p_delivery_fee?: number;
           p_delivery_notes?: string;
           p_email: string;
           p_full_name: string;
           p_gift_message?: string;
           p_governorate: string;
           p_items: Json;
-          p_payment_status?: Database["public"]["Enums"]["payment_status"];
+          p_payment_method?: Database["public"]["Enums"]["payment_method"];
           p_phone: string;
           p_source?: Database["public"]["Enums"]["order_source"];
         };
         Returns: Json;
+      };
+      delivery_fee_for: {
+        Args: { p_governorate: string; p_subtotal: number };
+        Returns: number;
       };
       current_profile_role: {
         Args: Record<PropertyKey, never>;
@@ -788,6 +791,7 @@ export type Database = {
         | "shipped"
         | "delivered"
         | "cancelled";
+      payment_method: "cash_on_delivery" | "card";
       payment_status: "pending" | "paid" | "failed" | "cash_on_delivery";
       user_role: "customer" | "admin" | "staff";
     };

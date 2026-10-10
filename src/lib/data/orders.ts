@@ -121,8 +121,7 @@ export interface CreateOrderInput {
   delivery_notes?: string;
   gift_message?: string;
   source?: "website" | "instagram" | "whatsapp" | "store" | "manual";
-  delivery_fee?: number;
-  payment_status?: PaymentStatus;
+  payment_method?: "cash_on_delivery" | "card";
 }
 
 export async function createOrder(
@@ -140,8 +139,7 @@ export async function createOrder(
     p_delivery_notes: input.delivery_notes ?? undefined,
     p_gift_message: input.gift_message ?? undefined,
     p_source: input.source ?? "website",
-    p_delivery_fee: input.delivery_fee ?? 0,
-    p_payment_status: input.payment_status ?? "cash_on_delivery",
+    p_payment_method: input.payment_method ?? "cash_on_delivery",
   });
 
   if (error) throw new Error(error.message);
