@@ -6,7 +6,7 @@ import { CalendarDays, Check, CreditCard, MapPin, PackageSearch, Truck } from "l
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
-import { formatEGP } from "@/lib/utils";
+import { APP_TIME_ZONE, formatEGP } from "@/lib/utils";
 import type { TrackedOrder } from "@/lib/data/track";
 import type { TrackLookupState } from "@/app/(store)/track/actions";
 import { lookupTrackedOrder } from "@/app/(store)/track/actions";
@@ -122,11 +122,12 @@ function TrackedOrderCard({ order }: { order: TrackedOrder }) {
           </Badge>
           <p className="text-xs text-muted-foreground" suppressHydrationWarning>
             Placed{" "}
-            {new Date(order.created_at).toLocaleDateString("en-GB", {
-              day: "numeric",
-              month: "short",
-              year: "numeric",
-            })}
+          {new Date(order.created_at).toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            timeZone: APP_TIME_ZONE,
+          })}
           </p>
         </div>
       </div>

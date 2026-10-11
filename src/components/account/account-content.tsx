@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
-import { formatEGP } from "@/lib/utils";
+import { APP_TIME_ZONE, formatEGP } from "@/lib/utils";
 import type { AccountSummary } from "@/lib/data/account";
 import { signOutAccount, updateProfile, type ProfileState } from "@/app/(store)/account/actions";
 
@@ -147,6 +147,7 @@ export function AccountContent({
                         day: "numeric",
                         month: "short",
                         year: "numeric",
+                        timeZone: APP_TIME_ZONE,
                       })}
                       {order.item_count > 0 ? ` · ${order.item_count} items` : ""}
                     </p>

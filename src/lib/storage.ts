@@ -97,6 +97,6 @@ export function buildProductImagePath(productId: string, type: string, fileName 
   const unique =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      : Math.random().toString(36).slice(2, 12);
   return `${productId}/${unique}.${extension}`;
 }

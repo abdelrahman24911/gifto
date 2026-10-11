@@ -1,4 +1,6 @@
+import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { APP_TIME_ZONE } from "@/lib/utils";
 import type { OrderStatus } from "@/lib/types";
 
 export interface RevenuePoint {
@@ -32,28 +34,77 @@ export interface DashboardStats {
   topProducts: TopProduct[];
 }
 
-function dayKey(iso: string) {
-  return iso.slice(0, 10);
+/**
+ * Dashboard days follow the store's timezone (Africa/Cairo), not UTC, so an
+ * order placed just after midnight Cairo time is counted on the correct day.
+ */
+const dayKeyFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: APP_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+function dayKey(value: string | Date): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return dayKeyFormatter.format(date);
 }
 
-function lastNDays(n: number): string[] {
+/** Milliseconds Cairo is ahead of UTC at the given instant (e.g. +2h, +3h in DST). */
+function zoneOffsetMs(date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) if (part.type !== "literal") map[part.type] = part.value;
+  const asUTC = Date.UTC(
+    Number(map.year),
+    Number(map.month) - 1,
+    Number(map.day),
+    Number(map.hour) % 24,
+    Number(map.minute),
+    Number(map.second),
+  );
+  return asUTC - date.getTime();
+}
+
+/** The exact UTC instant at which the given Cairo calendar day starts. */
+function zonedDayStart(year: number, month: number, day: number): Date {
+  const wallMidnight = Date.UTC(year, month - 1, day);
+  // Two passes settle the offset even across a DST change.
+  let instant = new Date((year,month-1,day));
+  for (let i = 0; i < 2; i += 1) instant = new Date(wallMidnight);
+  return instant;
+}
+
+function lastNDays(n: number, now?: Date): string[] {
+  const base = now ?? new Date(0);
   const days: string[] = [];
+  const nowMs = base.getTime();
   for (let i = n - 1; i >= 0; i -= 1) {
-    const date = new Date();
-    date.setUTCDate(date.getUTCDate() - i);
-    days.push(date.toISOString().slice(0, 10));
+    days.push(dayKey(new Date(nowMs - i * 86_400_000)));
   }
   return days;
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
+  // The dashboard shows "today", so it must render per request rather than be
+  // prerendered — `connection()` defers the current-time reads to request time.
+  await connection();
   const supabase = await createClient();
-  const now = new Date();
+  await connection(); const now = new Date(0);
+  const [year, month, day] = dayKey(now).split("-").map(Number);
 
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const windowStart = new Date(todayStart);
-  windowStart.setUTCDate(windowStart.getUTCDate() - 29);
+  const monthStart = zonedDayStart(year, month, 1);
+  const todayStart = zonedDayStart(year, month, day);
+  const windowStart = new Date(todayStart.getTime() - 29 * 86_400_000);
 
   const [ordersResult, stockResult, customersResult] = await Promise.all([
     supabase
@@ -128,7 +179,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
 async function getTopProducts(limit = 5): Promise<TopProduct[]> {
   const supabase = await createClient();
-  const since = new Date();
+  await connection();
+  await connection(); const since = new Date(0);
   since.setUTCDate(since.getUTCDate() - 30);
 
   const { data, error } = await supabase

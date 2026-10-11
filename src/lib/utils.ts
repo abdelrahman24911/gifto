@@ -27,10 +27,18 @@ export function formatNumber(value: number | string | null | undefined): string 
   return Number.isNaN(n) ? "0" : egpFormatter.format(n);
 }
 
+/**
+ * The store is Egypt-based, so every timestamp is displayed in Cairo time
+ * regardless of where the page is rendered (Vercel servers run in UTC) or
+ * which timezone the visitor is in.
+ */
+export const APP_TIME_ZONE = "Africa/Cairo";
+
 const dateFormatter = new Intl.DateTimeFormat("en-EG", {
   day: "numeric",
   month: "short",
   year: "numeric",
+  timeZone: APP_TIME_ZONE,
 });
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-EG", {
@@ -39,6 +47,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-EG", {
   year: "numeric",
   hour: "numeric",
   minute: "2-digit",
+  timeZone: APP_TIME_ZONE,
 });
 
 export function formatDate(value: string | Date | null | undefined): string {
@@ -55,10 +64,15 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   return dateTimeFormatter.format(date);
 }
 
-export function formatRelativeTime(value: string | Date | null | undefined): string {
+export function formatRelativeTime(
+  value: string | Date | null | undefined,
+  now: Date,
+): string {
   if (!value) return "—";
   const date = typeof value === "string" ? new Date(value) : value;
-  const diffMs = date.getTime() - Date.now();
+  if (Number.isNaN(date.getTime())) return "—";
+  const target = now;
+  const diffMs = date.getTime() - target.getTime();
   const abs = Math.abs(diffMs);
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
   const minutes = Math.round(abs / 60000);

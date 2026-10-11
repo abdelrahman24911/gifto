@@ -93,7 +93,7 @@ let draftSeq = 0;
 
 function newDraftKey(): string {
   draftSeq += 1;
-  return `draft-${Date.now()}-${draftSeq}`;
+  return `draft-${Math.random().toString(36).slice(2, 10)}-${draftSeq}`;
 }
 
 export function ProductForm({
