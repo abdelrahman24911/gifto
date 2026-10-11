@@ -36,6 +36,11 @@ export default async function EditProductPage({
     is_customizable: product.is_customizable,
     categoryIds: product.categories.map((category) => category.id),
     tagIds: product.tags.map((tag) => tag.id),
+    images: product.images.map((image) => ({
+      id: image.id,
+      storage_path: image.storage_path,
+      alt_text: image.alt_text,
+    })),
   };
 
   return (

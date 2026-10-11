@@ -1,12 +1,19 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
-import { upsertProduct, setProductActive } from "@/lib/data/admin";
+import { revalidatePath, revalidateTag } from "next/cache";
+import {
+  upsertProduct,
+  setProductActive,
+  saveProductImages,
+  type ProductImagePlanEntry,
+} from "@/lib/data/admin";
 import { requireStaff } from "@/lib/data/auth";
 import { slugify } from "@/lib/utils";
 
-export type ProductFormState = { error?: string } | null;
+export type ProductFormState =
+  | { error?: string; productId?: string }
+  | null;
 
 function numberOrNull(value: FormDataEntryValue | null): number | null {
   const raw = String(value ?? "").trim();
@@ -18,6 +25,26 @@ function numberOrNull(value: FormDataEntryValue | null): number | null {
 function intOr(value: FormDataEntryValue | null, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Parses the ordered image plan the client posted, ignoring malformed entries. */
+function parseImagePlan(value: FormDataEntryValue | null): ProductImagePlanEntry[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(String(value));
+    if (!Array.isArray(parsed)) return [];
+    const plan: ProductImagePlanEntry[] = [];
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
+      const kind = (entry as { kind?: unknown }).kind;
+      const id = (entry as { id?: unknown }).id;
+      if (kind === "existing" && typeof id === "string") plan.push({ kind: "existing", id });
+      else if (kind === "new") plan.push({ kind: "new" });
+    }
+    return plan;
+  } catch {
+    return [];
+  }
 }
 
 export async function saveProduct(
@@ -46,8 +73,15 @@ export async function saveProduct(
   const categoryIds = formData.getAll("categoryIds").map(String).filter(Boolean);
   const tagIds = formData.getAll("tagIds").map(String).filter(Boolean);
 
+  const plan = parseImagePlan(formData.get("imagePlan"));
+  const coverIndex = Number.parseInt(String(formData.get("coverIndex") ?? "-1"), 10);
+  const files = formData
+    .getAll("images")
+    .filter((entry): entry is File => entry instanceof File && entry.size > 0);
+
+  let productId: string;
   try {
-    await upsertProduct({
+    productId = await upsertProduct({
       id,
       name,
       slug,
@@ -67,6 +101,22 @@ export async function saveProduct(
     });
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not save the product." };
+  }
+
+  const images = await saveProductImages({ productId, plan, coverIndex, files });
+
+  revalidateTag("catalog", "max");
+  revalidatePath("/shop");
+  revalidatePath(`/product/${slug}`);
+  revalidatePath("/");
+
+  if (!images.ok) {
+    return {
+      error: `Product saved, but its images could not be uploaded: ${images.errors
+        .slice(0, 3)
+        .join("; ")}. Fix or remove the file(s) and save again.`,
+      productId,
+    };
   }
 
   revalidatePath("/admin/products");

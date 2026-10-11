@@ -1,5 +1,10 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { ADMIN_PAGE_SIZE, TAG_KINDS } from "@/lib/constants";
+import {
+  buildProductImagePath,
+  PRODUCT_IMAGE_BUCKET,
+  validateProductImageFile,
+} from "@/lib/storage";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Category,
@@ -247,6 +252,180 @@ export async function setProductActive(id: string, isActive: boolean): Promise<v
   if (error) throw new Error(error.message);
   revalidateTag("catalog", "max");
   revalidatePath("/admin/products");
+}
+
+/* -------------------------------------------------------------------------- */
+/* product images                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** One entry in the ordered image plan the admin form submits. */
+export type ProductImagePlanEntry =
+  | { kind: "existing"; id: string }
+  | { kind: "new" };
+
+export interface SaveProductImagesInput {
+  productId: string;
+  /** Ordered list describing the product's final gallery. */
+  plan: ProductImagePlanEntry[];
+  /** Index into `plan` whose entry becomes the primary image (-1 for none). */
+  coverIndex: number;
+  /** Newly picked files, in the same order as the `new` entries in `plan`. */
+  files: File[];
+}
+
+export interface SaveProductImagesResult {
+  ok: boolean;
+  uploaded: number;
+  errors: string[];
+}
+
+interface ExistingImageRow {
+  id: string;
+  storage_path: string;
+  alt_text: string | null;
+}
+
+/**
+ * Reconciles a product's gallery: uploads new files to Storage, then rewrites
+ * `product_images` so it matches the submitted order + cover selection.
+ *
+ * Failure is handled before any database change: if a file cannot be validated
+ * or uploaded, nothing is written and every file already uploaded in this call
+ * is removed, so no broken references or orphaned objects are left behind.
+ */
+export async function saveProductImages(
+  input: SaveProductImagesInput,
+): Promise<SaveProductImagesResult> {
+  const supabase = await createClient();
+  const { productId, plan, files } = input;
+  const bucket = supabase.storage.from(PRODUCT_IMAGE_BUCKET);
+
+  const { data: existingData, error: existingError } = await supabase
+    .from("product_images")
+    .select("id, storage_path, alt_text")
+    .eq("product_id", productId);
+  if (existingError) return { ok: false, uploaded: 0, errors: [existingError.message] };
+
+  const existingRows = (existingData ?? []) as ExistingImageRow[];
+  const byId = new Map(existingRows.map((row) => [row.id, row]));
+
+  // Resolve the plan against the rows/files we actually have.
+  type Resolved =
+    | { kind: "existing"; row: ExistingImageRow }
+    | { kind: "new"; file: File };
+  const resolved: Resolved[] = [];
+  let fileCursor = 0;
+  for (const entry of plan) {
+    if (entry.kind === "existing") {
+      const row = byId.get(entry.id);
+      if (row) resolved.push({ kind: "existing", row });
+    } else {
+      const file = files[fileCursor];
+      if (file) {
+        fileCursor += 1;
+        resolved.push({ kind: "new", file });
+      }
+    }
+  }
+
+  // Authoritative validation before touching Storage or the database.
+  const validationErrors: string[] = [];
+  for (const item of resolved) {
+    if (item.kind !== "new") continue;
+    const reason = validateProductImageFile(item.file);
+    if (reason) validationErrors.push(`${item.file.name}: ${reason}`);
+  }
+  if (validationErrors.length > 0) {
+    return { ok: false, uploaded: 0, errors: validationErrors };
+  }
+
+  // Upload new files under a product-specific, unique path.
+  const uploaded: { file: File; path: string }[] = [];
+  const uploadErrors: string[] = [];
+  for (const item of resolved) {
+    if (item.kind !== "new") continue;
+    const path = buildProductImagePath(productId, item.file.type, item.file.name);
+    const { error } = await bucket.upload(path, item.file, {
+      contentType: item.file.type || "application/octet-stream",
+      upsert: false,
+      cacheControl: "31536000",
+    });
+    if (error) uploadErrors.push(`${item.file.name}: ${error.message}`);
+    else uploaded.push({ file: item.file, path });
+  }
+  if (uploadErrors.length > 0) {
+    if (uploaded.length > 0) await bucket.remove(uploaded.map((item) => item.path));
+    return { ok: false, uploaded: 0, errors: uploadErrors };
+  }
+
+  // Final ordered gallery (existing paths + freshly uploaded ones).
+  const finalRows: { storage_path: string; alt_text: string | null }[] = [];
+  let uploadedCursor = 0;
+  for (const item of resolved) {
+    if (item.kind === "existing") {
+      finalRows.push({ storage_path: item.row.storage_path, alt_text: item.row.alt_text });
+    } else {
+      const next = uploaded[uploadedCursor];
+      uploadedCursor += 1;
+      if (next) finalRows.push({ storage_path: next.path, alt_text: null });
+    }
+  }
+
+  let coverIndex = input.coverIndex;
+  if (!Number.isInteger(coverIndex) || coverIndex < 0 || coverIndex >= finalRows.length) {
+    coverIndex = finalRows.length > 0 ? 0 : -1;
+  }
+
+  const keptIds = new Set(
+    resolved.flatMap((item) => (item.kind === "existing" ? [item.row.id] : [])),
+  );
+  const removedPaths = existingRows
+    .filter((row) => !keptIds.has(row.id))
+    .map((row) => row.storage_path);
+
+  // Rewrite the gallery: clear then insert, so the unique "one primary" index
+  // is never violated by an overlapping update.
+  const { error: deleteError } = await supabase
+    .from("product_images")
+    .delete()
+    .eq("product_id", productId);
+  if (deleteError) {
+    if (uploaded.length > 0) await bucket.remove(uploaded.map((item) => item.path));
+    return { ok: false, uploaded: 0, errors: [deleteError.message] };
+  }
+
+  if (finalRows.length > 0) {
+    const { error: insertError } = await supabase.from("product_images").insert(
+      finalRows.map((row, index) => ({
+        product_id: productId,
+        storage_path: row.storage_path,
+        alt_text: row.alt_text,
+        sort_order: index,
+        is_primary: index === coverIndex,
+      })),
+    );
+    if (insertError) {
+      // Best-effort restore of the previous gallery, then drop new objects.
+      if (existingRows.length > 0) {
+        await supabase.from("product_images").insert(
+          existingRows.map((row, index) => ({
+            product_id: productId,
+            storage_path: row.storage_path,
+            alt_text: row.alt_text,
+            sort_order: index,
+            is_primary: false,
+          })),
+        );
+      }
+      if (uploaded.length > 0) await bucket.remove(uploaded.map((item) => item.path));
+      return { ok: false, uploaded: 0, errors: [insertError.message] };
+    }
+  }
+
+  // Storage cleanup for images the admin removed — never fatal.
+  if (removedPaths.length > 0) await bucket.remove(removedPaths);
+
+  return { ok: true, uploaded: uploaded.length, errors: [] };
 }
 
 /* -------------------------------------------------------------------------- */

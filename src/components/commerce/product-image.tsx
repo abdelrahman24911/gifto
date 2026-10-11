@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import Image from "next/image";
 import { Gift } from "lucide-react";
@@ -29,7 +31,8 @@ export function ProductImage({
   priority,
   caption,
 }: ProductImageProps) {
-  const src = storageUrl(bucket, path);
+  const [failed, setFailed] = React.useState(false);
+  const src = failed ? null : storageUrl(bucket, path);
 
   if (!src) {
     return <ImagePlaceholder label={caption ?? alt} className={className} />;
@@ -44,6 +47,7 @@ export function ProductImage({
         sizes={sizes}
         priority={priority}
         className="object-cover"
+        onError={() => setFailed(true)}
       />
     </div>
   );
