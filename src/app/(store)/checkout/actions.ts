@@ -1,8 +1,10 @@
 "use server";
 
+import { after } from "next/server";
 import { checkoutSchema } from "@/lib/checkout";
 import { createOrder } from "@/lib/data/orders";
 import { getCheckoutLines } from "@/lib/data/products";
+import { dispatchNotifications } from "@/lib/notifications/dispatch";
 
 export type PlaceOrderInput = {
   items: { product_id: string; quantity: number; personalization?: Record<string, string> }[];
@@ -75,6 +77,14 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       source: "website",
       payment_method,
     });
+
+    // Best-effort immediate delivery of the owner notification (email). The
+    // outbox row was written atomically with the order inside `create_order`;
+    // `after` runs once the response is sent, so a slow or failing email call
+    // can never delay or invalidate the order. The cron sweep retries anything
+    // missed.
+    after(() => dispatchNotifications());
+
     return { ok: true, order };
   } catch (error) {
     return {

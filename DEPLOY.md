@@ -25,8 +25,19 @@ You only need to do Part 1 once.
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://abcd1234.supabase.co` | Supabase → Settings → API → Project URL | app, middleware, storage |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGciOi...` | Supabase → Settings → API → anon public | app, middleware |
 | `NEXT_PUBLIC_SITE_URL` | `https://fltase3.com` | your live domain (or the Vercel URL) | SEO metadata |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGciOi...` | Supabase → Settings → API → service_role (secret) | notification worker (server only) |
+| `RESEND_API_KEY` | `re_...` | Resend → API Keys | email notification worker (server only) |
+| `ORDER_NOTIFICATION_FROM` | `FL Tase3 <orders@yourdomain.com>` | a Resend-verified sender | email notification worker (server only) |
+| `ORDER_NOTIFICATION_EMAIL` | `owner@yourdomain.com` | owner's inbox for new-order alerts | email notification worker (server only) |
+| `CRON_SECRET` | `<random hex>` | generate with `openssl rand -hex 32` | protects the dispatch endpoint |
 
-> The app needs **only** these three. There is no service-role key required.
+> The storefront itself needs only the three `NEXT_PUBLIC_*` values. The
+> `SUPABASE_SERVICE_ROLE_KEY`, Resend and `CRON_SECRET` values are **server-only**
+> and power the new-order email notification worker (see Part 8). Without the
+> Resend values the app still works — notifications are simply skipped.
+>
+> WhatsApp is **not active**. Its environment variables are intentionally omitted
+> here; the code is kept dormant for a future opt-in.
 
 ---
 
@@ -227,6 +238,68 @@ truncate public.order_status_history, public.inventory_movements, public.order_i
 
 ---
 
+## Part 8 — New-order email notifications
+
+Every order placed on the storefront enqueues a notification job **in the same
+database transaction as the order** (table `notification_outbox`), so a job can
+never be lost even if the request dies right after checkout. The app then tries
+to send it immediately (`after()` on the checkout server action), and a Vercel
+Cron sweep retries anything that failed or was missed. Failed jobs retry with
+exponential backoff (1 min → 1 h, max 5 attempts) and already-sent jobs are never
+re-sent.
+
+The **active channel is email** (via [Resend](https://resend.com)). WhatsApp is
+kept in the codebase but **dormant**: no order enqueues a WhatsApp job and the
+worker never claims or calls the WhatsApp channel.
+
+The migration ships with the rest: `supabase/migrations/20261001000015_order_notifications.sql`
+is applied by `supabase db push` in Part 2 (nothing extra to run).
+
+### 8.1 Create the Resend sender
+
+1. Create a [Resend](https://resend.com) account and an **API key** (`re_...`).
+2. Add and **verify your sending domain** (Resend → Domains), so the `from`
+   address is allowed to send.
+3. Decide the recipient: the owner inbox that should receive new-order alerts.
+
+The email contains the order number, customer name and phone, each item with its
+quantity, the subtotal, delivery fee and total, and the delivery address, area,
+governorate and notes — all taken from the persisted order, never from the
+client display data.
+
+### 8.2 Set the environment variables
+
+Add `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `ORDER_NOTIFICATION_FROM`,
+`ORDER_NOTIFICATION_EMAIL` and `CRON_SECRET` from the table above to
+**Vercel → Project → Settings → Environment Variables** (Production **and**
+Preview). Locally, add the same keys to `.env.local`.
+
+`ORDER_NOTIFICATION_FROM` must be a verified sender, e.g.
+`FL Tase3 <orders@yourdomain.com>`.
+
+### 8.3 The retry cron
+
+`vercel.json` registers a cron that calls `/api/notifications/dispatch` every 5
+minutes. The endpoint is **not public**: it requires
+`Authorization: Bearer $CRON_SECRET` (which Vercel Cron sends automatically).
+
+> **Vercel plan limits:** on the free **Hobby** plan crons run at most **once per
+> day** and the schedule may be adjusted. The immediate `after()` send still runs
+> right after checkout, so the cron is only a safety net. For frequent retries on
+> Hobby, point any external scheduler (GitHub Actions, cron-job.org, …) at
+> `https://<your-domain>/api/notifications/dispatch` with
+> `Authorization: Bearer <CRON_SECRET>`.
+
+### 8.4 Verify
+
+1. Place a test order on the storefront.
+2. Supabase → **Table Editor → `notification_outbox`**: a row should exist for
+   the order with `channel = email` and `status = sent` (or `failed` +
+   `last_error` while retrying).
+3. The configured owner inbox should receive the alert.
+
+---
+
 ## Quick reference — all commands
 
 ```powershell
@@ -258,6 +331,8 @@ npm run dev
 | Admin login says invalid credentials | Wrong email/password, or the user was not confirmed. Check **Authentication → Users**. |
 | Images don't load | Buckets come from migration `..._storage.sql`; confirm the 4 buckets exist under **Storage**. |
 | `NEXT_PUBLIC_SITE_URL` wrong | Update it in Vercel and Supabase Auth URLs, then redeploy. |
+| No order emails arrive | Check the `notification_outbox` row's `last_error`, that the `from` domain is **verified** in Resend, and that `ORDER_NOTIFICATION_EMAIL` is correct. Re-trigger with a manual `POST` to `/api/notifications/dispatch` (with the Bearer secret). |
+| `/api/notifications/dispatch` returns 401 | `CRON_SECRET` missing/mismatched, or the caller did not send `Authorization: Bearer <secret>`. |
 
 ---
 

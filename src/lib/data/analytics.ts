@@ -79,7 +79,7 @@ function zoneOffsetMs(date: Date): number {
 function zonedDayStart(year: number, month: number, day: number): Date {
   const wallMidnight = Date.UTC(year, month - 1, day);
   // Two passes settle the offset even across a DST change.
-  let instant = new Date((year,month-1,day));
+  let instant = new Date(wallMidnight);
   for (let i = 0; i < 2; i += 1) instant = new Date(wallMidnight);
   return instant;
 }

@@ -136,6 +136,72 @@ export type Database = {
           },
         ];
       };
+      notification_outbox: {
+        Row: {
+          attempts: number;
+          channel: Database["public"]["Enums"]["notification_channel"];
+          created_at: string;
+          event_type: string;
+          id: string;
+          idempotency_key: string;
+          last_error: string | null;
+          locked_at: string | null;
+          max_attempts: number;
+          next_attempt_at: string;
+          order_id: string;
+          payload: Json;
+          provider_message_id: string | null;
+          sent_at: string | null;
+          status: Database["public"]["Enums"]["notification_status"];
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          channel?: Database["public"]["Enums"]["notification_channel"];
+          created_at?: string;
+          event_type?: string;
+          id?: string;
+          idempotency_key: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          max_attempts?: number;
+          next_attempt_at?: string;
+          order_id: string;
+          payload: Json;
+          provider_message_id?: string | null;
+          sent_at?: string | null;
+          status?: Database["public"]["Enums"]["notification_status"];
+          updated_at?: string;
+        };
+        Update: {
+          attempts?: number;
+          channel?: Database["public"]["Enums"]["notification_channel"];
+          created_at?: string;
+          event_type?: string;
+          id?: string;
+          idempotency_key?: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          max_attempts?: number;
+          next_attempt_at?: string;
+          order_id?: string;
+          payload?: Json;
+          provider_message_id?: string | null;
+          sent_at?: string | null;
+          status?: Database["public"]["Enums"]["notification_status"];
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_order_id_fkey";
+            columns: ["order_id"];
+            isOneToOne: false;
+            referencedRelation: "orders";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       order_items: {
         Row: {
           created_at: string;
@@ -741,6 +807,13 @@ export type Database = {
         };
         Returns: Json;
       };
+      claim_notification_jobs: {
+        Args: {
+          p_channel?: Database["public"]["Enums"]["notification_channel"];
+          p_limit?: number;
+        };
+        Returns: Json;
+      };
       delivery_fee_for: {
         Args: { p_governorate: string; p_subtotal: number };
         Returns: number;
@@ -755,6 +828,19 @@ export type Database = {
       };
       is_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
+      mark_notification_failed: {
+        Args: {
+          p_error: string;
+          p_id: string;
+          p_next_attempt_at?: string;
+          p_retry?: boolean;
+        };
+        Returns: undefined;
+      };
+      mark_notification_sent: {
+        Args: { p_id: string; p_provider_message_id?: string };
+        Returns: undefined;
+      };
       restock: {
         Args: { p_note?: string; p_product_id: string; p_quantity: number };
         Returns: Json;
@@ -783,6 +869,8 @@ export type Database = {
     Enums: {
       movement_type:
         "sale" | "restock" | "adjustment" | "cancellation" | "return";
+      notification_channel: "email" | "whatsapp";
+      notification_status: "pending" | "sending" | "sent" | "failed";
       order_source: "website" | "instagram" | "whatsapp" | "store" | "manual";
       order_status:
         | "pending"
@@ -928,6 +1016,8 @@ export const Constants = {
         "cancellation",
         "return",
       ],
+      notification_channel: ["email", "whatsapp"],
+      notification_status: ["pending", "sending", "sent", "failed"],
       order_source: ["website", "instagram", "whatsapp", "store", "manual"],
       order_status: [
         "pending",
