@@ -279,12 +279,13 @@ Preview). Locally, add the same keys to `.env.local`.
 
 ### 8.3 The retry cron
 
-`vercel.json` registers a cron that calls `/api/notifications/dispatch` every 5
-minutes. The endpoint is **not public**: it requires
+`vercel.json` registers a cron that calls `/api/notifications/dispatch` once a
+day (`0 3 * * *`). The endpoint is **not public**: it requires
 `Authorization: Bearer $CRON_SECRET` (which Vercel Cron sends automatically).
 
 > **Vercel plan limits:** on the free **Hobby** plan crons run at most **once per
-> day** and the schedule may be adjusted. The immediate `after()` send still runs
+> day**, so the schedule is `0 3 * * *` (a `*/5 * * * *` schedule is rejected at
+> deploy time). The immediate `after()` send still runs
 > right after checkout, so the cron is only a safety net. For frequent retries on
 > Hobby, point any external scheduler (GitHub Actions, cron-job.org, …) at
 > `https://<your-domain>/api/notifications/dispatch` with
