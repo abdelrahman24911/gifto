@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { sendOrderEmail } from "./email";
-import type { EmailConfig, OrderNotificationPayload } from "./types";
+import type { EmailConfig, GmailConfig, MailOptions, OrderNotificationPayload } from "./types";
 
 const config: EmailConfig = {
   apiKey: "re_super_secret_key",
@@ -119,5 +119,87 @@ describe("sendOrderEmail", () => {
     });
     expect(outcome).toMatchObject({ ok: false, retryable: true });
     expect(JSON.stringify(outcome)).not.toContain(config.apiKey);
+  });
+});
+
+const gmail: GmailConfig = {
+  user: "store@gmail.com",
+  pass: "super_secret_app_password",
+  from: "FL Tase3 <store@gmail.com>",
+  to: "owner@example.com",
+};
+
+function transport(impl: (options: MailOptions) => Promise<{ messageId?: string }>) {
+  return { sendMail: vi.fn(impl) };
+}
+
+describe("sendOrderEmail via Gmail SMTP", () => {
+  it("sends through the injected transport with the authoritative payload", async () => {
+    const t = transport(async () => ({ messageId: "smtp-1" }));
+
+    const outcome = await sendOrderEmail(payload, { gmailConfig: gmail, transporter: t });
+
+    expect(outcome).toEqual({ ok: true, providerMessageId: "smtp-1" });
+    expect(t.sendMail).toHaveBeenCalledTimes(1);
+    const mail = t.sendMail.mock.calls[0][0];
+    expect(mail.from).toBe(gmail.from);
+    expect(mail.to).toBe(gmail.to);
+    expect(mail.subject).toContain("FL-3003");
+    expect(mail.text).toContain("2× Mug");
+    expect(mail.html).toContain("45 El Horreya");
+  });
+
+  it("prefers Gmail over Resend when both are configured", async () => {
+    const t = transport(async () => ({ messageId: "smtp-1" }));
+    const fetchImpl = vi.fn();
+
+    const outcome = await sendOrderEmail(payload, {
+      gmailConfig: gmail,
+      config,
+      transporter: t,
+      fetchImpl,
+    });
+
+    expect(outcome).toMatchObject({ ok: true });
+    expect(t.sendMail).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("treats bad credentials / rejected envelope as permanent", async () => {
+    const auth = await sendOrderEmail(payload, {
+      gmailConfig: gmail,
+      transporter: transport(async () => {
+        throw Object.assign(new Error("Invalid login"), { code: "EAUTH", responseCode: 535 });
+      }),
+    });
+    expect(auth).toMatchObject({ ok: false, retryable: false, error: "Invalid login" });
+  });
+
+  it("treats transient SMTP failures as retryable", async () => {
+    const transient = await sendOrderEmail(payload, {
+      gmailConfig: gmail,
+      transporter: transport(async () => {
+        throw Object.assign(new Error("try later"), { responseCode: 421 });
+      }),
+    });
+    expect(transient).toMatchObject({ ok: false, retryable: true });
+
+    const network = await sendOrderEmail(payload, {
+      gmailConfig: gmail,
+      transporter: transport(async () => {
+        throw Object.assign(new Error("socket"), { code: "ETIMEDOUT" });
+      }),
+    });
+    expect(network).toMatchObject({ ok: false, retryable: true });
+  });
+
+  it("never leaks the app password in the outcome", async () => {
+    const outcome = await sendOrderEmail(payload, {
+      gmailConfig: gmail,
+      transporter: transport(async () => {
+        throw new Error("SMTP failure");
+      }),
+    });
+    expect(JSON.stringify(outcome)).not.toContain(gmail.pass);
   });
 });

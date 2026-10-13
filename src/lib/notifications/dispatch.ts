@@ -1,9 +1,15 @@
 import { computeNextAttemptAt } from "./backoff";
 import { ACTIVE_CHANNEL } from "./channels";
-import { getEmailConfig } from "./config";
+import { getEmailConfig, getGmailConfig } from "./config";
 import { sendOrderEmail } from "./email";
 import { createSupabaseNotificationStore, type NotificationStore } from "./store";
-import type { DispatchSummary, EmailConfig, NotificationJob } from "./types";
+import type {
+  DispatchSummary,
+  EmailConfig,
+  GmailConfig,
+  MailTransport,
+  NotificationJob,
+} from "./types";
 
 const DEFAULT_LIMIT = 10;
 
@@ -12,6 +18,10 @@ export interface DispatchDeps {
   fetchImpl?: typeof fetch;
   /** `undefined` reads the environment; pass explicitly (incl. null) in tests. */
   emailConfig?: EmailConfig | null;
+  /** Gmail config; `undefined` reads the environment, `null` disables it. */
+  gmailConfig?: GmailConfig | null;
+  /** Injected SMTP transport (tests). */
+  transporter?: MailTransport;
   limit?: number;
   now?: () => Date;
   onError?: (message: string) => void;
@@ -43,15 +53,16 @@ function nextAttempt(job: NotificationJob, deps: DispatchDeps): string {
  *     retry decision uses the authoritative count.
  */
 export async function dispatchNotifications(deps: DispatchDeps = {}): Promise<DispatchSummary> {
+  const gmailConfig = deps.gmailConfig === undefined ? getGmailConfig() : deps.gmailConfig;
   const emailConfig = deps.emailConfig === undefined ? getEmailConfig() : deps.emailConfig;
   const summary: DispatchSummary = {
     claimed: 0,
     sent: 0,
     failed: 0,
     retried: 0,
-    configured: emailConfig !== null,
+    configured: gmailConfig !== null || emailConfig !== null,
   };
-  if (!emailConfig) return summary;
+  if (!gmailConfig && !emailConfig) return summary;
 
   let store: NotificationStore;
   try {
@@ -88,6 +99,8 @@ export async function dispatchNotifications(deps: DispatchDeps = {}): Promise<Di
       const outcome = await sendOrderEmail(job.payload, {
         fetchImpl: deps.fetchImpl,
         config: emailConfig,
+        gmailConfig,
+        transporter: deps.transporter,
       });
 
       if (outcome.ok) {

@@ -1,4 +1,4 @@
-import type { EmailConfig, WhatsAppConfig } from "./types";
+import type { EmailConfig, GmailConfig, WhatsAppConfig } from "./types";
 
 const DEFAULT_API_VERSION = "v21.0";
 const DEFAULT_TEMPLATE_LANG = "en";
@@ -22,8 +22,24 @@ export function getEmailConfig(): EmailConfig | null {
   return { apiKey, from, to };
 }
 
+/**
+ * Reads the Gmail SMTP configuration for the active email channel from
+ * server-only environment variables. The sender is always the authenticated
+ * Gmail account (Gmail rejects forging another `From`); the recipient is the
+ * owner address. The app password is never logged or returned by callers.
+ */
+export function getGmailConfig(): GmailConfig | null {
+  const user = clean(process.env.GMAIL_USER);
+  const pass = clean(process.env.GMAIL_APP_PASSWORD);
+  const to = clean(process.env.ORDER_NOTIFICATION_EMAIL);
+
+  if (!user || !pass || !to) return null;
+
+  return { user, pass, from: `FL Tase3 <${user}>`, to };
+}
+
 export function isEmailConfigured(): boolean {
-  return getEmailConfig() !== null;
+  return getGmailConfig() !== null || getEmailConfig() !== null;
 }
 
 /**

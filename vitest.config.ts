@@ -11,5 +11,12 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     restoreMocks: true,
+    env: {
+      GMAIL_USER: "",
+      GMAIL_APP_PASSWORD: "",
+      RESEND_API_KEY: "",
+      ORDER_NOTIFICATION_FROM: "",
+      ORDER_NOTIFICATION_EMAIL: "",
+    },
   },
 });

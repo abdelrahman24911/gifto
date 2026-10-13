@@ -26,15 +26,19 @@ You only need to do Part 1 once.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbGciOi...` | Supabase → Settings → API → anon public | app, middleware |
 | `NEXT_PUBLIC_SITE_URL` | `https://fltase3.com` | your live domain (or the Vercel URL) | SEO metadata |
 | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGciOi...` | Supabase → Settings → API → service_role (secret) | notification worker (server only) |
-| `RESEND_API_KEY` | `re_...` | Resend → API Keys | email notification worker (server only) |
-| `ORDER_NOTIFICATION_FROM` | `FL Tase3 <orders@yourdomain.com>` | a Resend-verified sender | email notification worker (server only) |
 | `ORDER_NOTIFICATION_EMAIL` | `owner@yourdomain.com` | owner's inbox for new-order alerts | email notification worker (server only) |
+| `GMAIL_USER` | `store@gmail.com` | your Gmail address | email worker — preferred provider (server only) |
+| `GMAIL_APP_PASSWORD` | `abcd efgh ijkl mnop` | Google Account → Security → App passwords | email worker — preferred provider (server only) |
+| `RESEND_API_KEY` | `re_...` | Resend → API Keys | email worker — fallback provider (server only) |
+| `ORDER_NOTIFICATION_FROM` | `FL Tase3 <orders@yourdomain.com>` | a Resend-verified sender | email worker — fallback sender (server only) |
 | `CRON_SECRET` | `<random hex>` | generate with `openssl rand -hex 32` | protects the dispatch endpoint |
 
 > The storefront itself needs only the three `NEXT_PUBLIC_*` values. The
-> `SUPABASE_SERVICE_ROLE_KEY`, Resend and `CRON_SECRET` values are **server-only**
-> and power the new-order email notification worker (see Part 8). Without the
-> Resend values the app still works — notifications are simply skipped.
+> `SUPABASE_SERVICE_ROLE_KEY`, email-provider credentials and `CRON_SECRET` values
+> are **server-only** and power the new-order email notification worker (see Part
+> 8). Gmail is used when `GMAIL_USER`/`GMAIL_APP_PASSWORD` are set, otherwise the
+> worker falls back to Resend. Without either, the app still works —
+> notifications are simply skipped.
 >
 > WhatsApp is **not active**. Its environment variables are intentionally omitted
 > here; the code is kept dormant for a future opt-in.
@@ -255,12 +259,26 @@ worker never claims or calls the WhatsApp channel.
 The migration ships with the rest: `supabase/migrations/20261001000015_order_notifications.sql`
 is applied by `supabase db push` in Part 2 (nothing extra to run).
 
-### 8.1 Create the Resend sender
+### 8.1 Choose the sender
+
+Two providers are supported and the worker picks **Gmail first, Resend as a
+fallback**; you only need one.
+
+**Option A — send from your own Gmail (recommended, no domain required):**
+
+1. Enable **2-Step Verification** on the Google account
+   (myaccount.google.com → Security).
+2. Create an **App password** (Google Account → Security → App passwords). Copy
+   the 16-character password.
+3. Set `GMAIL_USER` to the Gmail address and `GMAIL_APP_PASSWORD` to the app
+   password. The sender is always `GMAIL_USER` (Gmail rejects a forged `From`).
+
+**Option B — Resend (needs a verified domain):**
 
 1. Create a [Resend](https://resend.com) account and an **API key** (`re_...`).
-2. Add and **verify your sending domain** (Resend → Domains), so the `from`
-   address is allowed to send.
-3. Decide the recipient: the owner inbox that should receive new-order alerts.
+2. Add and **verify your sending domain** (Resend → Domains).
+3. Set `RESEND_API_KEY` and `ORDER_NOTIFICATION_FROM` (e.g.
+   `FL Tase3 <orders@yourdomain.com>`).
 
 The email contains the order number, customer name and phone, each item with its
 quantity, the subtotal, delivery fee and total, and the delivery address, area,
@@ -269,13 +287,11 @@ client display data.
 
 ### 8.2 Set the environment variables
 
-Add `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `ORDER_NOTIFICATION_FROM`,
-`ORDER_NOTIFICATION_EMAIL` and `CRON_SECRET` from the table above to
+Add `SUPABASE_SERVICE_ROLE_KEY`, `ORDER_NOTIFICATION_EMAIL`, `CRON_SECRET`, and
+the credentials for the provider you chose (`GMAIL_USER` + `GMAIL_APP_PASSWORD`,
+and/or `RESEND_API_KEY` + `ORDER_NOTIFICATION_FROM`) from the table above to
 **Vercel → Project → Settings → Environment Variables** (Production **and**
 Preview). Locally, add the same keys to `.env.local`.
-
-`ORDER_NOTIFICATION_FROM` must be a verified sender, e.g.
-`FL Tase3 <orders@yourdomain.com>`.
 
 ### 8.3 The retry cron
 

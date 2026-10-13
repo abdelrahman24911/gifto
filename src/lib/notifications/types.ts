@@ -54,6 +54,32 @@ export interface EmailConfig {
   to: string;
 }
 
+/**
+ * Gmail SMTP configuration for the active email channel. Server-only. Uses an
+ * app password (never the account password); the account must have 2-Step
+ * Verification enabled to create one.
+ */
+export interface GmailConfig {
+  user: string;
+  pass: string;
+  from: string;
+  to: string;
+}
+
+/** A single outbound email, provider-agnostic. */
+export interface MailOptions {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** Minimal transport surface implemented by nodemailer (and by test doubles). */
+export interface MailTransport {
+  sendMail(options: MailOptions): Promise<{ messageId?: string }>;
+}
+
 /** Dormant WhatsApp Cloud API configuration (not used by the active worker). */
 export interface WhatsAppConfig {
   accessToken: string;
