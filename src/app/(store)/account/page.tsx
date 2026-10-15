@@ -2,7 +2,9 @@ export const instant = false;
 import type { Metadata } from "next";
 import { Section, SectionHeading } from "@/components/ui/section";
 import { AccountContent } from "@/components/account/account-content";
+import { AccountSetup } from "@/components/account/account-setup";
 import { getCustomerAccount } from "@/lib/data/account";
+import { getSession } from "@/lib/data/auth";
 import { notFound } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -12,7 +14,29 @@ export const metadata: Metadata = {
 
 export default async function AccountPage() {
   const account = await getCustomerAccount();
-  if (!account) notFound();
+
+  if (!account) {
+    const user = await getSession();
+    // Middleware keeps signed-out visitors out; guard the edge case anyway.
+    if (!user) notFound();
+
+    const fullName =
+      typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "";
+    const phone = typeof user.user_metadata?.phone === "string" ? user.user_metadata.phone : "";
+
+    return (
+      <Section>
+        <SectionHeading
+          eyebrow="My account"
+          title="Finish setting up your account"
+          description="Add your details once and every order made with your email is tracked here."
+        />
+        <div className="mt-10">
+          <AccountSetup fullName={fullName} phone={phone} email={user.email ?? ""} />
+        </div>
+      </Section>
+    );
+  }
 
   return (
     <Section>

@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { MessageCircle, RotateCcw, Truck } from "lucide-react";
 import { BRAND, FREE_DELIVERY_THRESHOLD } from "@/lib/constants";
 import { formatEGP } from "@/lib/utils";
@@ -35,9 +36,15 @@ export function AnnouncementBar() {
 export function BrandMark() {
   return (
     <span className="flex items-center gap-2.5">
-      <span className="grid size-9 place-items-center rounded-[11px] bg-primary text-[13px] font-black tracking-tight text-white shadow-hairline">
-        FL
-      </span>
+      <Image
+        src="/logo_vector.svg"
+        alt={BRAND.name}
+        width={585}
+        height={284}
+        priority
+        unoptimized
+        className="h-9 w-auto shrink-0"
+      />
       <span className="flex flex-col leading-none">
         <span className="text-[17px] font-extrabold tracking-[-0.03em] text-foreground">
           Tase3
